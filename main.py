@@ -18,7 +18,9 @@ def _enable_x11_threads():
 
 _enable_x11_threads()
 
+from xiyu_ui import terms
 from xiyu_ui.app import main
 
 if __name__ == "__main__":
+    terms.gate()
     main()
