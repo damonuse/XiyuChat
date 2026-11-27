@@ -1,5 +1,7 @@
 """设置窗口（含首次引导）与角色/群聊创建窗口。"""
 import os
+import subprocess
+import sys
 import threading
 import time
 import tkinter as tk
@@ -363,7 +365,12 @@ class SettingsWindow(tk.Toplevel):
         target = self.new_data_dir or paths.DATA_DIR
         try:
             if os.path.isdir(target):
-                os.startfile(target)
+                if sys.platform == "win32":
+                    os.startfile(target)  # noqa: 只在 Windows 上存在
+                elif sys.platform == "darwin":
+                    subprocess.Popen(["open", target])
+                else:
+                    subprocess.Popen(["xdg-open", target])
             else:
                 messagebox.showinfo("提示", "目录还不存在：\n" + target, parent=self)
         except Exception as e:
