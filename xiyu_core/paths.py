@@ -1,22 +1,32 @@
 """路径与常量定义。
 
-数据目录不再绑定固定盘符：默认放在 %APPDATA%\\XiyuChat\\Data，
-用户可以在设置里改到任意可写目录，实际位置记录在 %APPDATA%\\XiyuChat\\location.json。
+数据目录不绑定固定盘符，也不绑定某一个操作系统：
+  Windows   %APPDATA%\\XiyuChat
+  macOS     ~/Library/Application Support/XiyuChat
+  Linux     $XDG_DATA_HOME/XiyuChat（默认 ~/.local/share/XiyuChat）
+实际位置记录在 <ROOT>/location.json，用户可以在设置里改到任意可写目录。
 """
 import json
 import os
 import shutil
+import sys
 
 APP_NAME = "戏语"
 APP_EN = "XiyuChat"
-VERSION = "1.2.0"
+VERSION = "1.3.0"
 
 
 def _home_root() -> str:
     env = os.environ.get("XIYU_HOME")
     if env:
         return os.path.abspath(env)
-    base = os.environ.get("APPDATA") or os.path.expanduser("~")
+    if sys.platform == "win32":
+        base = os.environ.get("APPDATA") or os.path.expanduser("~")
+    elif sys.platform == "darwin":
+        base = os.path.join(os.path.expanduser("~"), "Library", "Application Support")
+    else:
+        base = os.environ.get("XDG_DATA_HOME") or os.path.join(
+            os.path.expanduser("~"), ".local", "share")
     return os.path.join(base, APP_EN)
 
 
