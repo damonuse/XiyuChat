@@ -567,7 +567,7 @@ struct ActorsView: View {
         .navigationTitle("角色")
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
-                Button("＋ 角色") { editing = Actor(name: "", persona: "", greeting: "") }
+                Button("＋ 角色") { editing = Actor(name: "", greeting: "", persona: "") }
             }
         }
         .sheet(item: $editing) { a in
