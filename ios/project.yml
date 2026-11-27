@@ -1,0 +1,34 @@
+name: Xiyu
+options:
+  bundleIdPrefix: com.xiyu
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+
+targets:
+  Xiyu:
+    type: application
+    platform: iOS
+    sources:
+      - Sources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.xiyu.chat
+        MARKETING_VERSION: 1.3.0
+        CURRENT_PROJECT_VERSION: 130
+        TARGETED_DEVICE_FAMILY: "1,2"
+        CODE_SIGNING_ALLOWED: NO
+        CODE_SIGN_IDENTITY: ""
+        SWIFT_VERSION: 5.0
+    info:
+      path: Info.plist
+      properties:
+        CFBundleDisplayName: 戏语
+        CFBundleShortVersionString: "1.3.0"
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
