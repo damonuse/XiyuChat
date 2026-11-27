@@ -97,7 +97,7 @@ pyinstaller --noconfirm --clean --onefile --windowed --name Xiyu main.py
 hdiutil create -volname "Xiyu 1.3.0" -srcfolder pkg -ov -format UDZO Xiyu-1.3.0-macos-arm64.dmg
 ```
 
-各平台安装包由 GitHub Actions 自动构建，配置见 `.github/workflows/build.yml`（8 个 job：Windows x64 / x86 / ARM64、Linux x64 / ARM64、macOS arm64 / Intel、Android、iOS）。
+各平台安装包由 GitHub Actions 自动构建，配置见 `.github/workflows/build.yml`（9 个 job：Windows x64 / x86 / ARM64、Linux x64 / ARM64、macOS arm64 / Intel、Android、iOS；全部产物自动上传到对应 Release）。
 
 ## 目录结构
 
