@@ -1,18 +1,16 @@
 import SwiftUI
 import Foundation
 
-struct Message: Identifiable, Codable {
+struct Message: Identifiable {
     let id: UUID
     let role: String
     let content: String
 
-    init(id: UUID = UUID(), role: String, content: String) {
-        self.id = id
+    init(role: String, content: String) {
+        self.id = UUID()
         self.role = role
         self.content = content
     }
-
-    enum CodingKeys: String, CodingKey { case role, content }
 }
 
 final class ChatStore: ObservableObject {
@@ -223,7 +221,7 @@ struct SettingsView: View {
                         .autocapitalization(.none)
                         .disableAutocorrection(true)
                     TextField("模型名称", text: $store.model)
-                        .autocapitalization(.none)
+                        .autocapitalization(.nZone)
                         .disableAutocorrection(true)
                 }
                 Section("角色人设") {
