@@ -26,8 +26,8 @@ jobs:
         shell: pwsh
         run: |
           python -m pip install --upgrade pip pyinstaller
-          python -m PyInstaller --noconfirm --clean --onedir --windowed --name Xiyu --icon assets/icon.ico --distpath dist --workpath build --specpath build main.py
-          python -m PyInstaller --noconfirm --clean --onefile --windowed --name XiyuSetup --icon assets/icon.ico --add-data "${{ github.workspace }}/dist/Xiyu;app" --add-data "${{ github.workspace }}/assets/icon.ico;." --distpath . --workpath build_setup --specpath build_setup installer/installer.py
+          python -m PyInstaller --noconfirm --clean --onedir --windowed --name Xiyu --icon "${{ github.workspace }}/assets/icon.ico" --distpath "${{ github.workspace }}/dist" --workpath "${{ github.workspace }}/build" --specpath "${{ github.workspace }}/build" main.py
+          python -m PyInstaller --noconfirm --clean --onefile --windowed --name XiyuSetup --icon "${{ github.workspace }}/assets/icon.ico" --add-data "${{ github.workspace }}/dist/Xiyu;app" --add-data "${{ github.workspace }}/assets/icon.ico;." --distpath "${{ github.workspace }}" --workpath "${{ github.workspace }}/build_setup" --specpath "${{ github.workspace }}/build_setup" installer/installer.py
           New-Item -ItemType Directory -Force pkg/Xiyu-$env:VERSION-windows-x64 | Out-Null
           Copy-Item dist/Xiyu/* pkg/Xiyu-$env:VERSION-windows-x64 -Recurse
           Copy-Item README.md, LICENSE, 使用说明.txt pkg/Xiyu-$env:VERSION-windows-x64
@@ -51,8 +51,8 @@ jobs:
         shell: pwsh
         run: |
           python -m pip install --upgrade pip pyinstaller
-          python -m PyInstaller --noconfirm --clean --onedir --windowed --name Xiyu --icon assets/icon.ico --distpath dist --workpath build --specpath build main.py
-          python -m PyInstaller --noconfirm --clean --onefile --windowed --name XiyuSetup-x86 --icon assets/icon.ico --add-data "${{ github.workspace }}/dist/Xiyu;app" --add-data "${{ github.workspace }}/assets/icon.ico;." --distpath . --workpath build_setup --specpath build_setup installer/installer.py
+          python -m PyInstaller --noconfirm --clean --onedir --windowed --name Xiyu --icon "${{ github.workspace }}/assets/icon.ico" --distpath "${{ github.workspace }}/dist" --workpath "${{ github.workspace }}/build" --specpath "${{ github.workspace }}/build" main.py
+          python -m PyInstaller --noconfirm --clean --onefile --windowed --name XiyuSetup-x86 --icon "${{ github.workspace }}/assets/icon.ico" --add-data "${{ github.workspace }}/dist/Xiyu;app" --add-data "${{ github.workspace }}/assets/icon.ico;." --distpath "${{ github.workspace }}" --workpath "${{ github.workspace }}/build_setup" --specpath "${{ github.workspace }}/build_setup" installer/installer.py
           New-Item -ItemType Directory -Force pkg/Xiyu-$env:VERSION-windows-x86 | Out-Null
           Copy-Item dist/Xiyu/* pkg/Xiyu-$env:VERSION-windows-x86 -Recurse
           Copy-Item README.md, LICENSE, 使用说明.txt pkg/Xiyu-$env:VERSION-windows-x86
@@ -77,7 +77,7 @@ jobs:
         shell: pwsh
         run: |
           python -m pip install --upgrade pip pyinstaller
-          python -m PyInstaller --noconfirm --clean --onedir --windowed --name Xiyu --icon assets/icon.ico --distpath dist --workpath build --specpath build main.py
+          python -m PyInstaller --noconfirm --clean --onedir --windowed --name Xiyu --icon "${{ github.workspace }}/assets/icon.ico" --distpath "${{ github.workspace }}/dist" --workpath "${{ github.workspace }}/build" --specpath "${{ github.workspace }}/build" main.py
           New-Item -ItemType Directory -Force pkg/Xiyu-$env:VERSION-windows-arm64 | Out-Null
           Copy-Item dist/Xiyu/* pkg/Xiyu-$env:VERSION-windows-arm64 -Recurse
           Copy-Item README.md, LICENSE, 使用说明.txt pkg/Xiyu-$env:VERSION-windows-arm64
@@ -139,7 +139,7 @@ jobs:
 
   # ---------------- macOS ----------------
   macos-arm64:
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -199,12 +199,15 @@ jobs:
           distribution: temurin
           java-version: "17"
       - uses: android-actions/setup-android@v3
+        continue-on-error: true
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.7"
       - name: sdk packages
         run: |
-          sdkmanager --install "platforms;android-34" "build-tools;34.0.0"
+          echo "sdk.dir=${ANDROID_HOME}" > android/local.properties
+          yes | sdkmanager --licenses > /dev/null 2>&1 || true
+          sdkmanager --install "platforms;android-34" "build-tools;34.0.0" > /dev/null
       - name: prepare settings
         working-directory: android
         run: |
@@ -241,7 +244,7 @@ jobs:
 
   # ---------------- iOS 原生（未签名 ipa，需自签工具安装） ----------------
   ios:
-    runs-on: macos-14
+    runs-on: macos-15
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
