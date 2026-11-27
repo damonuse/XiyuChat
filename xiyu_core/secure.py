@@ -1,18 +1,30 @@
 """API Key 的安全存储。
 
-优先使用 Windows DPAPI（CryptProtectData），密文与当前用户账户绑定，
-拷到别的机器或别的账户都解不开。非 Windows 或调用失败时，退化为
-带 HMAC 校验的本地派生密钥加密（仍不是明文）。
+Windows 上优先使用 DPAPI（CryptProtectData），密文与当前用户账户绑定，
+拷到别的机器或别的账户都解不开。
+
+macOS / Linux 没有等价的标准库接口，退化为「本机派生密钥 + HMAC 校验」的
+对称加密（PBKDF2 派生，配合 0600 文件权限），仍然不是明文落盘，但强度低于
+DPAPI，换机器或换用户后需要重新填写 Key。
 """
 import base64
 import ctypes
+import getpass
 import hashlib
 import hmac
 import os
+import platform
 import sys
-from ctypes import wintypes
+
+try:
+    from ctypes import wintypes
+except Exception:  # 非 Windows 平台的兜底
+    class wintypes:  # type: ignore
+        DWORD = ctypes.c_ulong
+
 
 _MAGIC = b"XIYU1"
+_PBKDF2_ROUNDS = 200000
 
 
 class _Blob(ctypes.Structure):
@@ -46,9 +58,15 @@ def _dpapi(data: bytes, protect: bool) -> bytes:
 
 
 def _local_key() -> bytes:
-    seed = ("xiyu|" + os.environ.get("USERNAME", "user") + "|"
-            + os.environ.get("COMPUTERNAME", "pc") + "|local-fallback")
-    return hashlib.sha256(seed.encode("utf-8")).digest()
+    """用本机用户与主机信息派生一个仅供本机使用的密钥。"""
+    try:
+        user = getpass.getuser()
+    except Exception:
+        user = os.environ.get("USERNAME") or os.environ.get("USER") or "user"
+    seed = "|".join((sys.platform, user, platform.node(),
+                     os.path.expanduser("~"), "xiyu-local-fallback"))
+    return hashlib.pbkdf2_hmac("sha256", seed.encode("utf-8"),
+                               b"xiyu-salt-v1", _PBKDF2_ROUNDS, 32)
 
 
 def _fallback_encrypt(data: bytes) -> bytes:
@@ -94,13 +112,18 @@ def save_api_key(path: str, api_key: str) -> None:
     with open(tmp, "wb") as f:
         f.write(blob)
     os.replace(tmp, path)
-    try:
-        if sys.platform == "win32":
+    if sys.platform == "win32":
+        try:
             import subprocess
             subprocess.run(["attrib", "+H", path], shell=False,
                            capture_output=True, check=False)
-    except Exception:
-        pass
+        except Exception:
+            pass
+    else:
+        try:
+            os.chmod(path, 0o600)
+        except Exception:
+            pass
 
 
 def load_api_key(path: str) -> str:
