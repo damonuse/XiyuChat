@@ -1,0 +1,28 @@
+plugins {
+    id 'com.android.application' version '8.5.2'
+}
+
+android {
+    namespace 'com.xiyu.chat'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.xiyu.chat"
+        minSdk 24
+        targetSdk 34
+        versionCode 130
+        versionName "1.3.0"
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.debug
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_11
+        targetCompatibility JavaVersion.VERSION_11
+    }
+}
