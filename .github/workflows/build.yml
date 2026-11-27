@@ -194,6 +194,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: cleanup stray settings.gradle dir
+        continue-on-error: true
+        run: |
+          if [ -d android/settings.gradle ]; then
+            rm -rf android/settings.gradle
+            git config user.name "xiyu-bot"
+            git config user.email "bot@users.noreply.github.com"
+            git add -A
+            git commit -m "chore: remove stray android/settings.gradle directory"
+            git push
+          fi
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
