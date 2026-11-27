@@ -35,7 +35,6 @@ let formatRule = """
 
 let defaultGlobal = "你是一个沉浸式角色扮演引擎。始终以角色身份说话，不要提及自己是 AI，不要跳出设定。"
 
-@MainActor
 final class Store: ObservableObject {
     @Published var actors: [Actor] = [] { didSet { save() } }
     @Published var sessions: [Session] = [] { didSet { save() } }
@@ -81,23 +80,23 @@ final class Store: ObservableObject {
         }
     }
 
-    func actor(_ id: UUID) -> Actor? { actors.first { $0.id == id } }
+    func actorBy(_ id: UUID) -> Actor? { actors.first { $0.id == id } }
 
     func memberNames(_ s: Session) -> String {
-        s.members.compactMap { actor($0)?.name }.joined(separator: "、")
+        s.members.compactMap { actorBy($0)?.name }.joined(separator: "、")
     }
 
     func targets(_ s: Session) -> [Actor] {
         if s.type == "single" {
-            return s.members.compactMap { actor($0) }
+            return s.members.compactMap { actorBy($0) }
         }
-        return s.members.compactMap { actor($0) }
+        return s.members.compactMap { actorBy($0) }
     }
 
     func addSession(name: String, members: [UUID], type: String) {
         var msgs: [Message] = []
         for id in members {
-            if let a = actor(id), !a.greeting.isEmpty {
+            if let a = actorBy(id), !a.greeting.isEmpty {
                 msgs.append(Message(role: "character", speaker: a.name, content: a.greeting))
             }
         }
@@ -105,7 +104,7 @@ final class Store: ObservableObject {
         if type == "group" {
             title = name.isEmpty ? "群聊" : name
         } else {
-            title = name.isEmpty ? (actor(members.first ?? UUID())?.name ?? "会话") : name
+            title = name.isEmpty ? (actorBy(members.first ?? UUID())?.name ?? "会话") : name
         }
         sessions.insert(Session(name: title, type: type, members: members, messages: msgs), at: 0)
     }
@@ -125,25 +124,33 @@ final class Store: ObservableObject {
             return
         }
         busy = true
-        Task { @MainActor in
+        Task {
             for a in targets {
-                typingName = a.name
+                let payload = await MainActor.run { () -> (String, [[String: String]])? in
+                    self.typingName = a.name
+                    guard let i = self.sessions.firstIndex(where: { $0.id == sessionID }) else { return nil }
+                    return (self.buildSystem(a, session: self.sessions[i]),
+                            self.buildMessages(a, session: self.sessions[i]))
+                }
+                guard let p = payload else { break }
                 do {
-                    guard let i = self.sessions.firstIndex(where: { $0.id == sessionID }) else { break }
-                    let sys = self.buildSystem(a, session: self.sessions[i])
-                    let msgs = self.buildMessages(a, session: self.sessions[i])
-                    let reply = try await self.complete(system: sys, messages: msgs)
-                    guard let j = self.sessions.firstIndex(where: { $0.id == sessionID }) else { break }
+                    let reply = try await self.complete(system: p.0, messages: p.1)
                     let trimmed = reply.trimmingCharacters(in: .whitespacesAndNewlines)
                     if trimmed.isEmpty { throw CallError.empty }
-                    self.sessions[j].messages.append(Message(role: "character", speaker: a.name, content: trimmed))
+                    await MainActor.run {
+                        if let j = self.sessions.firstIndex(where: { $0.id == sessionID }) {
+                            self.sessions[j].messages.append(Message(role: "character", speaker: a.name, content: trimmed))
+                        }
+                    }
                 } catch {
-                    self.errorText = "\(error.localizedDescription)"
+                    await MainActor.run { self.errorText = "\(error.localizedDescription)" }
                     break
                 }
             }
-            self.typingName = nil
-            self.busy = false
+            await MainActor.run {
+                self.typingName = nil
+                self.busy = false
+            }
         }
     }
 
@@ -165,7 +172,7 @@ final class Store: ObservableObject {
         if !world.isEmpty { parts.append("【世界背景】\n" + world) }
         parts.append("【你的身份】\n你叫「\(c.name)」。你的角色设定：\n\(c.persona)")
         if session.type == "group" {
-            let others = session.members.compactMap { actor($0) }.filter { $0.id != c.id }
+            let others = session.members.compactMap { actorBy($0) }.filter { $0.id != c.id }
             var lines: [String] = ["【同场角色】这轮对话里还有：\(others.isEmpty ? "无" : others.map { $0.name }.joined(separator: "、"))。"]
             for o in others {
                 lines.append("- \(o.name)：\(clip(o.persona, 60))")
