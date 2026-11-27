@@ -205,9 +205,13 @@ jobs:
           gradle-version: "8.7"
       - name: sdk packages
         run: |
-          echo "sdk.dir=${ANDROID_HOME}" > android/local.properties
+          SDKROOT="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          echo "SDKROOT=$SDKROOT"
+          echo "sdk.dir=$SDKROOT" > android/local.properties
           yes | sdkmanager --licenses > /dev/null 2>&1 || true
-          sdkmanager --install "platforms;android-34" "build-tools;34.0.0" > /dev/null
+          sdkmanager --install "platform-tools" "platforms;android-34" "build-tools;34.0.0" 2>&1 | tail -5 || true
+          echo "--- installed platforms ---"; ls "$SDKROOT/platforms" 2>/dev/null || true
+          echo "--- installed build-tools ---"; ls "$SDKROOT/build-tools" 2>/dev/null || true
       - name: prepare settings
         working-directory: android
         run: |
@@ -251,17 +255,24 @@ jobs:
       - name: deps
         run: |
           brew install xcodegen
-      - name: generate + build
+      - name: generate
         run: |
           cd ios
           xcodegen generate
-          xcodebuild -project Xiyu.xcodeproj -scheme Xiyu -sdk iphoneos -configuration Release \
-            -derivedDataPath build CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO
+          xcodebuild -list -project Xiyu.xcodeproj
+      - name: build
+        run: |
+          cd ios
+          set -o pipefail
+          xcodebuild -project Xiyu.xcodeproj -scheme Xiyu -destination "generic/platform=iOS" \
+            -configuration Release -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO 2>&1 | tail -80
       - name: pack ipa
         run: |
           mkdir -p out/Payload
           cp -R ios/build/Build/Products/Release-iphoneos/Xiyu.app out/Payload/
           cd out && zip -qry ../Xiyu-${VERSION}-ios-unsigned.ipa Payload
+          ls -l ../Xiyu-*.ipa
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ env.VERSION }}
