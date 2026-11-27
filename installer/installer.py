@@ -9,7 +9,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox
 
 APP_NAMES = {"zh": "戏语", "en": "XiyuChat"}
-VERSION = "1.3.0"
+VERSION = "1.0.0"
 DESKTOP_NAME = "戏语"
 MENU_NAME = "戏语"
 EXE_NAME = "Xiyu.exe"
