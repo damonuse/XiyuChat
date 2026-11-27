@@ -13,7 +13,7 @@ import sys
 
 APP_NAME = "戏语"
 APP_EN = "XiyuChat"
-VERSION = "1.3.0"
+VERSION = "1.0.0"
 
 
 def _home_root() -> str:
