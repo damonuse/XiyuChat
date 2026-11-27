@@ -10,8 +10,19 @@ android {
         applicationId "com.xiyu.chat"
         minSdk 24
         targetSdk 34
-        versionCode 130
-        versionName "1.3.0"
+        versionCode 100
+        versionName "1.0.0"
+    }
+
+    // 按 CPU 架构拆分安装包：armeabi-v7a（32 位 ARM）、arm64-v8a（64 位 ARM）、
+    // x86 / x86_64（模拟器与 x86 平板），另外再产出一个全架构通用的包。
+    splits {
+        abi {
+            enable true
+            reset()
+            include 'armeabi-v7a', 'arm64-v8a', 'x86', 'x86_64'
+            universalApk true
+        }
     }
 
     buildTypes {
