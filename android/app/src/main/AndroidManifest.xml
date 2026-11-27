@@ -6,6 +6,7 @@
 
     <application
         android:label="戏语"
+        android:icon="@mipmap/ic_launcher"
         android:allowBackup="true"
         android:supportsRtl="true"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
