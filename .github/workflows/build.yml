@@ -1,0 +1,151 @@
+name: build-multiplatform
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+env:
+  VERSION: "1.3.0"
+
+jobs:
+  windows-x64:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          architecture: x64
+      - name: build app + installer
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip pyinstaller
+          python -m PyInstaller --noconfirm --clean --onedir --windowed --name Xiyu --icon assets/icon.ico --distpath dist --workpath build --specpath build main.py
+          python -m PyInstaller --noconfirm --clean --onefile --windowed --name XiyuSetup --icon assets/icon.ico --add-data "dist/Xiyu;app" --add-data "assets/icon.ico;." --distpath . --workpath build_setup --specpath build_setup installer/installer.py
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ env.VERSION }}
+          files: XiyuSetup.exe
+
+  windows-x86:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          architecture: x86
+      - name: build app + installer
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip pyinstaller
+          python -m PyInstaller --noconfirm --clean --onedir --windowed --name Xiyu --icon assets/icon.ico --distpath dist --workpath build --specpath build main.py
+          python -m PyInstaller --noconfirm --clean --onefile --windowed --name XiyuSetup-x86 --icon assets/icon.ico --add-data "dist/Xiyu;app" --add-data "assets/icon.ico;." --distpath . --workpath build_setup --specpath build_setup installer/installer.py
+          New-Item -ItemType Directory -Force pkg/Xiyu-$env:VERSION-windows-x86 | Out-Null
+          Copy-Item dist/Xiyu/* pkg/Xiyu-$env:VERSION-windows-x86 -Recurse
+          Copy-Item README.md, LICENSE, 使用说明.txt pkg/Xiyu-$env:VERSION-windows-x86
+          Compress-Archive -Path pkg/Xiyu-$env:VERSION-windows-x86 -DestinationPath Xiyu-$env:VERSION-windows-x86.zip
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ env.VERSION }}
+          files: |
+            XiyuSetup-x86.exe
+            Xiyu-${{ env.VERSION }}-windows-x86.zip
+
+  windows-arm64:
+    runs-on: windows-11-arm
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          architecture: arm64
+      - name: build app
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip pyinstaller
+          python -m PyInstaller --noconfirm --clean --onedir --windowed --name Xiyu --icon assets/icon.ico --distpath dist --workpath build --specpath build main.py
+          New-Item -ItemType Directory -Force pkg/Xiyu-$env:VERSION-windows-arm64 | Out-Null
+          Copy-Item dist/Xiyu/* pkg/Xiyu-$env:VERSION-windows-arm64 -Recurse
+          Copy-Item README.md, LICENSE, 使用说明.txt pkg/Xiyu-$env:VERSION-windows-arm64
+          Compress-Archive -Path pkg/Xiyu-$env:VERSION-windows-arm64 -DestinationPath Xiyu-$env:VERSION-windows-arm64.zip
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ env.VERSION }}
+          files: Xiyu-${{ env.VERSION }}-windows-arm64.zip
+
+  linux-x64:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-tk
+          python -m pip install --upgrade pip pyinstaller
+      - name: build
+        run: |
+          pyinstaller --noconfirm --clean --onefile --windowed --name Xiyu --icon assets/icon.ico main.py
+          mkdir -p pkg/Xiyu-${VERSION}-linux-x64
+          cp dist/Xiyu pkg/Xiyu-${VERSION}-linux-x64/
+          cp README.md LICENSE pkg/Xiyu-${VERSION}-linux-x64/
+          cd pkg && tar czf ../Xiyu-${VERSION}-linux-x64.tar.gz Xiyu-${VERSION}-linux-x64
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ env.VERSION }}
+          files: Xiyu-${{ env.VERSION }}-linux-x64.tar.gz
+
+  macos-arm64:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: deps
+        run: |
+          python -m pip install --upgrade pip pyinstaller
+          python -c "import tkinter" || brew install python-tk@3.11
+      - name: build
+        run: |
+          python -m PyInstaller --noconfirm --clean --onefile --windowed --name Xiyu main.py
+          mkdir -p pkg
+          cp -R dist/Xiyu.app pkg/
+          cp README.md LICENSE pkg/
+          cd pkg && zip -qry ../Xiyu-${VERSION}-macos-arm64.zip .
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ env.VERSION }}
+          files: Xiyu-${{ env.VERSION }}-macos-arm64.zip
+
+  macos-x64:
+    runs-on: macos-13
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: deps
+        run: |
+          python -m pip install --upgrade pip pyinstaller
+          python -c "import tkinter" || brew install python-tk@3.11
+      - name: build
+        run: |
+          python -m PyInstaller --noconfirm --clean --onefile --windowed --name Xiyu main.py
+          mkdir -p pkg
+          cp -R dist/Xiyu.app pkg/
+          cp README.md LICENSE pkg/
+          cd pkg && zip -qry ../Xiyu-${VERSION}-macos-x64.zip .
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ env.VERSION }}
+          files: Xiyu-${{ env.VERSION }}-macos-x64.zip
