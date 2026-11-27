@@ -13,6 +13,7 @@ env:
   VERSION: "1.3.0"
 
 jobs:
+  # ---------------- Windows ----------------
   windows-x64:
     runs-on: windows-latest
     steps:
@@ -26,11 +27,17 @@ jobs:
         run: |
           python -m pip install --upgrade pip pyinstaller
           python -m PyInstaller --noconfirm --clean --onedir --windowed --name Xiyu --icon assets/icon.ico --distpath dist --workpath build --specpath build main.py
-          python -m PyInstaller --noconfirm --clean --onefile --windowed --name XiyuSetup --icon assets/icon.ico --add-data "dist/Xiyu;app" --add-data "assets/icon.ico;." --distpath . --workpath build_setup --specpath build_setup installer/installer.py
+          python -m PyInstaller --noconfirm --clean --onefile --windowed --name XiyuSetup --icon assets/icon.ico --add-data "${{ github.workspace }}/dist/Xiyu;app" --add-data "${{ github.workspace }}/assets/icon.ico;." --distpath . --workpath build_setup --specpath build_setup installer/installer.py
+          New-Item -ItemType Directory -Force pkg/Xiyu-$env:VERSION-windows-x64 | Out-Null
+          Copy-Item dist/Xiyu/* pkg/Xiyu-$env:VERSION-windows-x64 -Recurse
+          Copy-Item README.md, LICENSE, 使用说明.txt pkg/Xiyu-$env:VERSION-windows-x64
+          Compress-Archive -Path pkg/Xiyu-$env:VERSION-windows-x64 -DestinationPath Xiyu-$env:VERSION-windows-x64.zip
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ env.VERSION }}
-          files: XiyuSetup.exe
+          files: |
+            XiyuSetup.exe
+            Xiyu-${{ env.VERSION }}-windows-x64.zip
 
   windows-x86:
     runs-on: windows-latest
@@ -45,7 +52,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip pyinstaller
           python -m PyInstaller --noconfirm --clean --onedir --windowed --name Xiyu --icon assets/icon.ico --distpath dist --workpath build --specpath build main.py
-          python -m PyInstaller --noconfirm --clean --onefile --windowed --name XiyuSetup-x86 --icon assets/icon.ico --add-data "dist/Xiyu;app" --add-data "assets/icon.ico;." --distpath . --workpath build_setup --specpath build_setup installer/installer.py
+          python -m PyInstaller --noconfirm --clean --onefile --windowed --name XiyuSetup-x86 --icon assets/icon.ico --add-data "${{ github.workspace }}/dist/Xiyu;app" --add-data "${{ github.workspace }}/assets/icon.ico;." --distpath . --workpath build_setup --specpath build_setup installer/installer.py
           New-Item -ItemType Directory -Force pkg/Xiyu-$env:VERSION-windows-x86 | Out-Null
           Copy-Item dist/Xiyu/* pkg/Xiyu-$env:VERSION-windows-x86 -Recurse
           Copy-Item README.md, LICENSE, 使用说明.txt pkg/Xiyu-$env:VERSION-windows-x86
@@ -80,6 +87,7 @@ jobs:
           tag_name: v${{ env.VERSION }}
           files: Xiyu-${{ env.VERSION }}-windows-arm64.zip
 
+  # ---------------- Linux ----------------
   linux-x64:
     runs-on: ubuntu-22.04
     steps:
@@ -94,7 +102,7 @@ jobs:
           python -m pip install --upgrade pip pyinstaller
       - name: build
         run: |
-          pyinstaller --noconfirm --clean --onefile --windowed --name Xiyu --icon assets/icon.ico main.py
+          pyinstaller --noconfirm --clean --onefile --windowed --name Xiyu main.py
           mkdir -p pkg/Xiyu-${VERSION}-linux-x64
           cp dist/Xiyu pkg/Xiyu-${VERSION}-linux-x64/
           cp README.md LICENSE pkg/Xiyu-${VERSION}-linux-x64/
@@ -104,6 +112,32 @@ jobs:
           tag_name: v${{ env.VERSION }}
           files: Xiyu-${{ env.VERSION }}-linux-x64.tar.gz
 
+  linux-arm64:
+    runs-on: ubuntu-24.04-arm
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-tk
+          python -m pip install --upgrade pip pyinstaller
+      - name: build
+        run: |
+          pyinstaller --noconfirm --clean --onefile --windowed --name Xiyu main.py
+          mkdir -p pkg/Xiyu-${VERSION}-linux-arm64
+          cp dist/Xiyu pkg/Xiyu-${VERSION}-linux-arm64/
+          cp README.md LICENSE pkg/Xiyu-${VERSION}-linux-arm64/
+          cd pkg && tar czf ../Xiyu-${VERSION}-linux-arm64.tar.gz Xiyu-${VERSION}-linux-arm64
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ env.VERSION }}
+          files: Xiyu-${{ env.VERSION }}-linux-arm64.tar.gz
+
+  # ---------------- macOS ----------------
   macos-arm64:
     runs-on: macos-14
     steps:
@@ -121,14 +155,17 @@ jobs:
           mkdir -p pkg
           cp -R dist/Xiyu.app pkg/
           cp README.md LICENSE pkg/
-          cd pkg && zip -qry ../Xiyu-${VERSION}-macos-arm64.zip .
+      - name: make dmg
+        run: |
+          hdiutil create -volname "Xiyu ${VERSION}" -srcfolder pkg -ov -format UDZO Xiyu-${VERSION}-macos-arm64.dmg
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ env.VERSION }}
-          files: Xiyu-${{ env.VERSION }}-macos-arm64.zip
+          files: Xiyu-${{ env.VERSION }}-macos-arm64.dmg
 
   macos-x64:
-    runs-on: macos-13
+    runs-on: macos-15-intel
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -144,8 +181,59 @@ jobs:
           mkdir -p pkg
           cp -R dist/Xiyu.app pkg/
           cp README.md LICENSE pkg/
-          cd pkg && zip -qry ../Xiyu-${VERSION}-macos-x64.zip .
+      - name: make dmg
+        run: |
+          hdiutil create -volname "Xiyu ${VERSION}" -srcfolder pkg -ov -format UDZO Xiyu-${VERSION}-macos-x64.dmg
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ env.VERSION }}
-          files: Xiyu-${{ env.VERSION }}-macos-x64.zip
+          files: Xiyu-${{ env.VERSION }}-macos-x64.dmg
+
+  # ---------------- Android 原生 ----------------
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: android-actions/setup-android@v3
+      - name: build apk
+        working-directory: android
+        run: |
+          gradle --no-daemon assembleRelease
+      - name: rename
+        run: |
+          cp android/app/build/outputs/apk/release/app-release.apk Xiyu-${{ env.VERSION }}-android.apk
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ env.VERSION }}
+          files: Xiyu-${{ env.VERSION }}-android.apk
+
+  # ---------------- iOS 原生（未签名 ipa，需自签工具安装） ----------------
+  ios:
+    runs-on: macos-14
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: deps
+        run: |
+          brew install xcodegen
+      - name: generate + build
+        run: |
+          cd ios
+          xcodegen generate
+          xcodebuild -project Xiyu.xcodeproj -scheme Xiyu -sdk iphoneos -configuration Release \
+            -derivedDataPath build CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO
+      - name: pack ipa
+        run: |
+          mkdir -p out/Payload
+          cp -R ios/build/Build/Products/Release-iphoneos/Xiyu.app out/Payload/
+          cd out && zip -qry ../Xiyu-${VERSION}-ios-unsigned.ipa Payload
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ env.VERSION }}
+          files: Xiyu-${{ env.VERSION }}-ios-unsigned.ipa
+          fail_on_unmatched_files: false
+
