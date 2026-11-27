@@ -263,10 +263,16 @@ jobs:
       - name: build
         run: |
           cd ios
-          set -o pipefail
+          set +e
           xcodebuild -project Xiyu.xcodeproj -scheme Xiyu -destination "generic/platform=iOS" \
             -configuration Release -derivedDataPath build \
-            CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO 2>&1 | tail -80
+            CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO > /tmp/xc.log 2>&1
+          rc=$?
+          echo "=== compile errors ==="
+          grep -n "error:" /tmp/xc.log | head -40 || true
+          echo "=== log tail ==="
+          tail -25 /tmp/xc.log
+          exit $rc
       - name: pack ipa
         run: |
           mkdir -p out/Payload
