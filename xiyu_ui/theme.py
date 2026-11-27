@@ -1,8 +1,14 @@
 """界面主题常量与小工具。"""
+import sys
 import tkinter as tk
 import tkinter.font as tkfont
 
-FONT_FAMILY = "Microsoft YaHei UI"
+if sys.platform == "win32":
+    FONT_FAMILY = "Microsoft YaHei UI"
+elif sys.platform == "darwin":
+    FONT_FAMILY = "PingFang SC"
+else:
+    FONT_FAMILY = "Noto Sans CJK SC"
 
 C_BG = "#F5F6FA"
 C_CARD = "#FFFFFF"
