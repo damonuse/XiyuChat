@@ -213,7 +213,7 @@ struct SettingsView: View {
     var body: some View {
         NavigationView {
             Form {
-                Section("接口") {
+                Section {
                     TextField("Base URL", text: $store.baseURL)
                         .autocapitalization(.none)
                         .disableAutocorrection(true)
@@ -221,12 +221,16 @@ struct SettingsView: View {
                         .autocapitalization(.none)
                         .disableAutocorrection(true)
                     TextField("模型名称", text: $store.model)
-                        .autocapitalization(.nZone)
+                        .autocapitalization(.none)
                         .disableAutocorrection(true)
+                } header: {
+                    Text("接口")
                 }
-                Section("角色人设") {
+                Section {
                     TextEditor(text: $store.persona)
                         .frame(minHeight: 120)
+                } header: {
+                    Text("角色人设")
                 }
                 Section {
                     Button("清空当前对话", role: .destructive) { store.clear() }
