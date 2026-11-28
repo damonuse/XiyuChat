@@ -1,5 +1,6 @@
 import SwiftUI
 import Foundation
+import UniformTypeIdentifiers
 
 struct Actor: Identifiable, Codable, Hashable {
     var id: UUID = UUID()
@@ -732,11 +733,13 @@ struct ImportActorsView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var raw = ""
     @State private var message = ""
+    @State private var showPicker = false
 
     var body: some View {
         NavigationStack {
             Form {
                 Section {
+                    Button("从文件选择 .json") { showPicker = true }
                     TextEditor(text: $raw)
                         .frame(minHeight: 240)
                         .disableAutocorrection(true)
@@ -767,6 +770,17 @@ struct ImportActorsView: View {
                         for a in list { store.actors.append(a) }
                         dismiss()
                     }
+                }
+            }
+            .fileImporter(isPresented: $showPicker, allowedContentTypes: [.json, .text, .plainText],
+                          allowsMultipleSelection: false) { result in
+                guard case .success(let urls) = result, let url = urls.first else { return }
+                let ok = url.startAccessingSecurityScopedResource()
+                defer { if ok { url.stopAccessingSecurityScopedResource() } }
+                if let s = try? String(contentsOf: url, encoding: .utf8) {
+                    raw = s
+                } else {
+                    message = "这个文件读不出来，换一个 UTF-8 的 .json 试试"
                 }
             }
         }
