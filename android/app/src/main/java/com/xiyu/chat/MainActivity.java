@@ -68,6 +68,8 @@ public class MainActivity extends Activity {
     private JSONArray sessions = new JSONArray();
     private final Handler ui = new Handler(Looper.getMainLooper());
 
+    private static final String TERMS_VERSION = "1";
+
     private boolean busy = false;
     private JSONObject curSession;
     private LinearLayout msgBox;
@@ -101,7 +103,11 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         prefs = getSharedPreferences("xiyu", MODE_PRIVATE);
-        showTermsPage();
+        if (TERMS_VERSION.equals(prefs.getString("terms_version", ""))) {
+            enterApp();
+        } else {
+            showTermsPage();
+        }
     }
 
     private void showTermsPage() {
@@ -122,7 +128,10 @@ public class MainActivity extends Activity {
         root.addView(sc, scLp);
 
         Button agree = button("我已阅读并同意", true);
-        agree.setOnClickListener(v -> enterApp());
+        agree.setOnClickListener(v -> {
+            prefs.edit().putString("terms_version", TERMS_VERSION).apply();
+            enterApp();
+        });
         LinearLayout.LayoutParams btnLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(48));
         btnLp.topMargin = dp(12);
@@ -182,6 +191,7 @@ public class MainActivity extends Activity {
     }
 
     private void ensureDefault() {
+        if (prefs.getBoolean("seeded", false)) return;
         if (chars.length() == 0) {
             try {
                 JSONObject c = defaultCharacter();
@@ -206,6 +216,7 @@ public class MainActivity extends Activity {
             } catch (Exception ignored) {
             }
         }
+        prefs.edit().putBoolean("seeded", true).apply();
     }
 
     private JSONObject findChar(String id) {
@@ -301,8 +312,8 @@ public class MainActivity extends Activity {
 
     private void showSessionsPage() {
         LinearLayout root = page();
-        root.addView(header("戏语", "＋ 会话", this::newSessionDialog));
-        root.addView(text("单聊一个角色，或把几个角色放进同一个房间", 13, false, C_SUB));
+        root.addView(header("戏语", "＋ 群聊", this::newSessionDialog));
+        root.addView(text("点角色直接单聊；多个角色一起聊用「＋ 群聊」", 13, false, C_SUB));
 
         LinearLayout tools = new LinearLayout(this);
         tools.setOrientation(LinearLayout.HORIZONTAL);
@@ -317,38 +328,97 @@ public class MainActivity extends Activity {
         ScrollView sc = new ScrollView(this);
         LinearLayout list = new LinearLayout(this);
         list.setOrientation(LinearLayout.VERTICAL);
-        if (sessions.length() == 0) {
-            list.addView(text("还没有会话，点右上角「＋ 会话」开始。", 14, false, C_SUB), wrapLp(24));
+
+        list.addView(text("角色", 13, true, C_SUB), wrapLp(12));
+        if (chars.length() == 0) {
+            list.addView(text("还没有角色，点上方「角色管理」新建一个。", 14, false, C_SUB), wrapLp(20));
         }
-        for (int i = 0; i < sessions.length(); i++) {
-            final int index = i;
-            final JSONObject s = sessions.optJSONObject(i);
-            if (s == null) continue;
+        for (int i = 0; i < chars.length(); i++) {
+            final int ci = i;
+            final JSONObject c = chars.optJSONObject(i);
+            if (c == null) continue;
             LinearLayout row = new LinearLayout(this);
             row.setOrientation(LinearLayout.VERTICAL);
             row.setPadding(dp(14), dp(12), dp(14), dp(12));
             row.setBackground(round(C_GRAY, 12));
-
-            String sub;
-            JSONArray members = s.optJSONArray("members");
-            if ("group".equals(s.optString("type"))) {
-                sub = "群聊 · " + (members == null ? 0 : members.length()) + " 位角色 · " + memberNames(s);
-            } else {
-                sub = "单聊 · " + s.optString("name");
-            }
-            row.addView(text(s.optString("name", "会话"), 17, true, C_TEXT));
-            row.addView(text(sub, 12, false, C_SUB));
-            row.setOnClickListener(v -> showChatPage(s));
+            row.addView(text(c.optString("name", "角色"), 17, true, C_TEXT));
+            String persona = c.optString("persona", "");
+            row.addView(text(persona.isEmpty() ? "（还没有人设）" : persona, 12, false, C_SUB));
+            row.setOnClickListener(v -> openSingle(c));
             row.setOnLongClickListener(v -> {
-                confirmDeleteSession(index);
+                editCharacter(ci);
                 return true;
             });
             list.addView(row, wrapLp(10));
+        }
+
+        StringBuilder groupHeader = new StringBuilder();
+        int groupCount = 0;
+        for (int i = 0; i < sessions.length(); i++) {
+            JSONObject s = sessions.optJSONObject(i);
+            if (s != null && "group".equals(s.optString("type"))) groupCount++;
+        }
+        if (groupCount > 0) {
+            list.addView(text("群聊", 13, true, C_SUB), wrapLp(12));
+            for (int i = 0; i < sessions.length(); i++) {
+                final int index = i;
+                final JSONObject s = sessions.optJSONObject(i);
+                if (s == null || !"group".equals(s.optString("type"))) continue;
+                LinearLayout row = new LinearLayout(this);
+                row.setOrientation(LinearLayout.VERTICAL);
+                row.setPadding(dp(14), dp(12), dp(14), dp(12));
+                row.setBackground(round(C_GRAY, 12));
+                JSONArray members = s.optJSONArray("members");
+                String sub = "群聊 · " + (members == null ? 0 : members.length())
+                        + " 位角色 · " + memberNames(s);
+                row.addView(text(s.optString("name", "群聊"), 17, true, C_TEXT));
+                row.addView(text(sub, 12, false, C_SUB));
+                row.setOnClickListener(v -> showChatPage(s));
+                row.setOnLongClickListener(v -> {
+                    confirmDeleteSession(index);
+                    return true;
+                });
+                list.addView(row, wrapLp(10));
+            }
         }
         sc.addView(list);
         root.addView(sc, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
         setContentView(root);
+    }
+
+    /** 点角色直接进入和它的单聊；没有会话就现建一个。 */
+    private void openSingle(JSONObject c) {
+        String cid = c.optString("id");
+        for (int i = 0; i < sessions.length(); i++) {
+            JSONObject s = sessions.optJSONObject(i);
+            if (s == null) continue;
+            if ("single".equals(s.optString("type")) && cid.equals(s.optString("single_id"))) {
+                showChatPage(s);
+                return;
+            }
+        }
+        try {
+            JSONObject s = new JSONObject();
+            s.put("id", "s_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12));
+            s.put("type", "single");
+            s.put("name", c.optString("name", "角色"));
+            s.put("single_id", cid);
+            s.put("members", new JSONArray().put(cid));
+            JSONArray msgs = new JSONArray();
+            if (!c.optString("greeting").isEmpty()) {
+                JSONObject m = new JSONObject();
+                m.put("role", "character");
+                m.put("speaker", c.optString("name"));
+                m.put("content", c.optString("greeting"));
+                msgs.put(m);
+            }
+            s.put("msgs", msgs);
+            sessions.put(s);
+            saveData();
+            showChatPage(s);
+        } catch (Exception ignored) {
+        }
     }
 
     private String memberNames(JSONObject s) {
@@ -391,10 +461,10 @@ public class MainActivity extends Activity {
         box.setOrientation(LinearLayout.VERTICAL);
         box.setPadding(dp(20), dp(12), dp(20), dp(4));
 
-        EditText name = field("会话名称（群聊时可留空）", "", 1);
+        EditText name = field("群聊名称（可留空）", "", 1);
         name.setSingleLine(true);
         box.addView(name);
-        box.addView(text("选择参与的角色（选 1 个是单聊，选 2 个以上是群聊）", 12, false, C_SUB), wrapLp(12));
+        box.addView(text("选择参与的角色（至少 2 个，构成群聊）", 12, false, C_SUB), wrapLp(12));
 
         final List<CheckBox> boxes = new ArrayList<>();
         for (int i = 0; i < chars.length(); i++) {
@@ -419,8 +489,8 @@ public class MainActivity extends Activity {
                     for (CheckBox cb : boxes) {
                         if (cb.isChecked()) picked.add((String) cb.getTag());
                     }
-                    if (picked.isEmpty()) {
-                        Toast.makeText(this, "至少选一个角色", Toast.LENGTH_SHORT).show();
+                    if (picked.size() < 2) {
+                        Toast.makeText(this, "至少选两个角色", Toast.LENGTH_SHORT).show();
                         return;
                     }
                     try {
@@ -478,6 +548,13 @@ public class MainActivity extends Activity {
         root.addView(header("角色", "＋ 角色", () -> editCharacter(-1)));
         root.addView(text("每个角色都有自己的名字、开场白和人设", 13, false, C_SUB));
 
+        LinearLayout tools = new LinearLayout(this);
+        tools.setOrientation(LinearLayout.HORIZONTAL);
+        Button imp = button("导入 JSON", false);
+        imp.setOnClickListener(v -> importCharactersDialog());
+        tools.addView(imp, wrapLp(10));
+        root.addView(tools);
+
         ScrollView sc = new ScrollView(this);
         LinearLayout list = new LinearLayout(this);
         list.setOrientation(LinearLayout.VERTICAL);
@@ -509,6 +586,89 @@ public class MainActivity extends Activity {
         root.addView(back, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(46)));
         setContentView(root);
+    }
+
+    /** 粘贴 JSON 一次性导入角色。 */
+    private void importCharactersDialog() {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(20), dp(12), dp(20), dp(4));
+        box.addView(text("把 AI 生成的 JSON 粘贴进来：支持单个角色，也支持 characters 数组。"
+                + "字段可用 name/名字、persona/prompt/人设、greeting/开场白、world/世界。", 12, false, C_SUB),
+                wrapLp(10));
+        EditText input = field("在这里粘贴 JSON", "", 8);
+        input.setSingleLine(false);
+        box.addView(input);
+        ScrollView sc = new ScrollView(this);
+        sc.addView(box);
+        new AlertDialog.Builder(this)
+                .setTitle("导入角色")
+                .setView(sc)
+                .setPositiveButton("导入", (d, w) -> {
+                    int added = importCharacters(input.getText().toString());
+                    if (added == 0) {
+                        Toast.makeText(this, "没认出角色，检查 JSON 里有没有 name", Toast.LENGTH_SHORT).show();
+                    } else {
+                        saveData();
+                        Toast.makeText(this, "已导入 " + added + " 个角色", Toast.LENGTH_SHORT).show();
+                        showCharactersPage();
+                    }
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    private String firstOf(JSONObject o, String... keys) {
+        for (String k : keys) {
+            String v = o.optString(k, "");
+            if (!v.isEmpty()) return v;
+        }
+        return "";
+    }
+
+    private int importCharacters(String raw) {
+        String t = raw == null ? "" : raw.trim();
+        if (t.startsWith("```")) {
+            int nl = t.indexOf('\n');
+            t = nl >= 0 ? t.substring(nl + 1) : t;
+            int end = t.lastIndexOf("```");
+            if (end >= 0) t = t.substring(0, end);
+            t = t.trim();
+        }
+        int added = 0;
+        try {
+            Object parsed = new org.json.JSONTokener(t).nextValue();
+            JSONArray arr = null;
+            if (parsed instanceof JSONArray) {
+                arr = (JSONArray) parsed;
+            } else if (parsed instanceof JSONObject) {
+                JSONObject o = (JSONObject) parsed;
+                if (o.optJSONArray("characters") != null) arr = o.optJSONArray("characters");
+                else if (o.optJSONArray("roles") != null) arr = o.optJSONArray("roles");
+                else if (o.optJSONArray("data") != null) arr = o.optJSONArray("data");
+                else {
+                    arr = new JSONArray();
+                    arr.put(o);
+                }
+            }
+            if (arr == null) return 0;
+            for (int i = 0; i < arr.length(); i++) {
+                JSONObject d = arr.optJSONObject(i);
+                if (d == null) continue;
+                String name = firstOf(d, "name", "名字");
+                if (name.isEmpty()) continue;
+                JSONObject c = new JSONObject();
+                c.put("id", "c_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12));
+                c.put("name", name);
+                c.put("greeting", firstOf(d, "greeting", "开场白"));
+                c.put("persona", firstOf(d, "persona", "prompt", "人设", "设定"));
+                c.put("world", firstOf(d, "world", "世界", "背景"));
+                chars.put(c);
+                added++;
+            }
+        } catch (Exception ignored) {
+        }
+        return added;
     }
 
     private void editCharacter(int index) {
@@ -616,6 +776,15 @@ public class MainActivity extends Activity {
         root.addView(model);
         root.addView(global);
 
+        TextView balanceView = text("点「查询余额」试试（仅 DeepSeek 支持）", 13, false, C_SUB);
+        root.addView(balanceView, wrapLp(10));
+        Button balanceBtn = button("查询余额", false);
+        balanceBtn.setOnClickListener(v -> queryBalance(
+                base.getText().toString().trim(),
+                key.getText().toString().trim(),
+                balanceView, balanceBtn));
+        root.addView(balanceBtn, wrapLp(10));
+
         Button save = button("保存", true);
         save.setOnClickListener(v -> {
             String b = base.getText().toString().trim();
@@ -651,6 +820,81 @@ public class MainActivity extends Activity {
         ScrollView sc = new ScrollView(this);
         sc.addView(root);
         setContentView(sc);
+    }
+
+    // ================= 余额 =================
+
+    private void queryBalance(String base, String key, TextView out, Button btn) {
+        if (key.isEmpty()) {
+            out.setText("请先填写 API Key");
+            return;
+        }
+        btn.setEnabled(false);
+        out.setText("查询中…");
+        new Thread(() -> {
+            String result;
+            try {
+                String b = base.isEmpty() ? DEFAULT_BASE : base;
+                if (!b.contains("://")) b = "https://" + b;
+                java.net.URI uri = new java.net.URI(b);
+                String root = uri.getScheme() + "://" + uri.getHost()
+                        + (uri.getPort() > 0 ? ":" + uri.getPort() : "");
+                HttpURLConnection c = (HttpURLConnection)
+                        new URL(root + "/user/balance").openConnection();
+                c.setRequestMethod("GET");
+                c.setRequestProperty("Authorization", "Bearer " + key);
+                c.setRequestProperty("Accept", "application/json");
+                c.setConnectTimeout(15000);
+                c.setReadTimeout(25000);
+                int code = c.getResponseCode();
+                InputStream is = code >= 400 ? c.getErrorStream() : c.getInputStream();
+                StringBuilder sb = new StringBuilder();
+                if (is != null) {
+                    try (BufferedReader br = new BufferedReader(
+                            new InputStreamReader(is, StandardCharsets.UTF_8))) {
+                        String line;
+                        while ((line = br.readLine()) != null) sb.append(line);
+                    }
+                }
+                String raw = sb.toString();
+                if (code == 404 || code == 405) {
+                    result = "这个接口没有余额查询（目前只有 DeepSeek 支持）";
+                } else if (code != 200) {
+                    String msg = raw;
+                    try {
+                        msg = new JSONObject(raw).optJSONObject("error").optString("message", raw);
+                    } catch (Exception ignored) {
+                    }
+                    result = "查询失败 " + code + "：" + msg;
+                } else {
+                    JSONObject o = new JSONObject(raw);
+                    boolean ok = o.optBoolean("is_available", true);
+                    JSONArray infos = o.optJSONArray("balance_infos");
+                    StringBuilder tb = new StringBuilder();
+                    if (infos != null) {
+                        for (int i = 0; i < infos.length(); i++) {
+                            JSONObject info = infos.optJSONObject(i);
+                            if (info == null) continue;
+                            if (tb.length() > 0) tb.append("；");
+                            tb.append(info.optString("total_balance", "0")).append(" ")
+                                    .append(info.optString("currency", ""))
+                                    .append("（充值 ").append(info.optString("topped_up_balance", "-"))
+                                    .append(" · 赠送 ").append(info.optString("granted_balance", "-"))
+                                    .append("）");
+                        }
+                    }
+                    String body = tb.length() == 0 ? "接口未返回余额信息" : tb.toString();
+                    result = body + "｜账户状态：" + (ok ? "可用" : "不可用（余额可能不足）");
+                }
+            } catch (Exception e) {
+                result = "查询失败：" + e.getMessage();
+            }
+            final String r = result;
+            ui.post(() -> {
+                out.setText(r);
+                btn.setEnabled(true);
+            });
+        }).start();
     }
 
     // ================= 聊天页 =================
