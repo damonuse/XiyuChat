@@ -596,11 +596,11 @@ def _first_of(d, *keys):
     return ""
 
 
-def parse_character_json(raw):
-    """从 AI 给的 JSON 文本里取第一个角色，返回 name/greeting/persona/world。"""
+def parse_characters_json(raw):
+    """把 AI 给的 JSON 文本解析成角色列表（name/greeting/persona/world）。"""
     if not isinstance(raw, str):
-        return None
-    t = raw.strip()
+        return []
+    t = raw.strip().lstrip("\ufeff")
     if t.startswith("```"):
         lines = t.splitlines()[1:]
         if lines and lines[-1].strip().startswith("```"):
@@ -609,7 +609,7 @@ def parse_character_json(raw):
     try:
         data = json.loads(t)
     except Exception:
-        return None
+        return []
     if isinstance(data, dict):
         for key in ("characters", "roles", "data"):
             if isinstance(data.get(key), list):
@@ -617,20 +617,28 @@ def parse_character_json(raw):
                 break
         else:
             data = [data]
-    if not isinstance(data, list) or not data:
-        return None
-    d = data[0]
-    if not isinstance(d, dict):
-        return None
-    name = _first_of(d, "name", "名字")
-    if not name:
-        return None
-    return {
-        "name": name,
-        "greeting": _first_of(d, "greeting", "开场白"),
-        "persona": _first_of(d, "persona", "prompt", "人设", "设定"),
-        "world": _first_of(d, "world", "世界", "背景"),
-    }
+    if not isinstance(data, list):
+        return []
+    out = []
+    for d in data:
+        if not isinstance(d, dict):
+            continue
+        name = _first_of(d, "name", "名字")
+        if not name:
+            continue
+        out.append({
+            "name": name,
+            "greeting": _first_of(d, "greeting", "开场白"),
+            "persona": _first_of(d, "persona", "prompt", "人设", "设定"),
+            "world": _first_of(d, "world", "世界", "背景"),
+        })
+    return out
+
+
+def parse_character_json(raw):
+    """取第一个角色，返回 name/greeting/persona/world。"""
+    got = parse_characters_json(raw)
+    return got[0] if got else None
 
 
 class CharacterDialog(tk.Toplevel):
@@ -664,8 +672,9 @@ class CharacterDialog(tk.Toplevel):
         if not group_mode:
             jbar = tk.Frame(self, bg=C_CARD)
             jbar.pack(fill="x", padx=pad, pady=(8, 0))
-            flat_button(jbar, "粘贴 JSON 自动填充", self._paste_json, kind="soft").pack(side="left")
-            tk.Label(jbar, text="把 AI 给的 JSON 粘进去，名字 / 开场白 / 人设 / 世界自动填好",
+            flat_button(jbar, "粘贴 JSON", self._paste_json, kind="soft").pack(side="left")
+            flat_button(jbar, "从文件导入", self._import_json_file, kind="plain").pack(side="left", padx=(6, 0))
+            tk.Label(jbar, text="把 AI 给的 JSON 粘进来或选一个 .json，名字 / 开场白 / 人设 / 世界自动填好",
                      bg=C_CARD, fg=C_TEXT_SUB, font=font(9), anchor="w").pack(side="left", padx=(8, 0))
 
         holder = tk.Frame(self, bg=C_CARD)
@@ -739,6 +748,12 @@ class CharacterDialog(tk.Toplevel):
 
         tk.Label(self.f_group, text="选择成员（按住 Ctrl 点选多个）", bg=C_CARD,
                  fg=C_TEXT, font=font(10), anchor="w").pack(fill="x")
+        gjb = tk.Frame(self.f_group, bg=C_CARD)
+        gjb.pack(fill="x", pady=(4, 0))
+        flat_button(gjb, "粘贴 JSON 加成员", self._paste_group_json, kind="soft").pack(side="left")
+        flat_button(gjb, "从文件加成员", self._import_group_json_file, kind="plain").pack(side="left", padx=(6, 0))
+        tk.Label(gjb, text="会按 JSON 里的每个角色新建，并自动选中", bg=C_CARD, fg=C_TEXT_SUB,
+                 font=font(9), anchor="w").pack(side="left", padx=(8, 0))
         lw = tk.Frame(self.f_group, bg=C_LINE, padx=1, pady=1)
         lw.pack(fill="both", expand=True, pady=(4, 0))
         self.lb_members = tk.Listbox(lw, selectmode="extended", bd=0, relief="flat",
@@ -750,12 +765,10 @@ class CharacterDialog(tk.Toplevel):
         sb = ttk.Scrollbar(lw, orient="vertical", command=self.lb_members.yview)
         sb.pack(side="right", fill="y")
         self.lb_members.configure(yscrollcommand=sb.set)
-        for c in self.characters:
-            self.lb_members.insert("end", "  " + c.get("name", "未命名"))
+        self._fill_members()
         if not self.characters:
             tk.Label(self.f_group, text="还没有已创建的角色，请先创建至少两个角色。",
                      bg=C_CARD, fg=C_DANGER, font=font(9), anchor="w").pack(fill="x", pady=(6, 0))
-
         # 模式开关
         self.f_mode = tk.Frame(body, bg=C_CARD)
         self.f_mode.pack(fill="x", pady=(10, 0))
@@ -798,16 +811,7 @@ class CharacterDialog(tk.Toplevel):
             if not got:
                 messagebox.showwarning("没认出角色", "检查 JSON 里有没有 name 字段。", parent=win)
                 return
-            self.v_name.set(got["name"])
-            self.txt_greet.delete("1.0", "end")
-            self.txt_greet.insert("1.0", got["greeting"])
-            self.txt_prompt.delete("1.0", "end")
-            self.txt_prompt.insert("1.0", got["persona"])
-            if got["world"]:
-                self.v_adv.set(True)
-                self._toggle_adv()
-                self.txt_world.delete("1.0", "end")
-                self.txt_world.insert("1.0", got["world"])
+            self._apply_parsed(got)
             win.destroy()
 
         foot = tk.Frame(win, bg=C_CARD)
@@ -818,6 +822,103 @@ class CharacterDialog(tk.Toplevel):
         w, h = 560, 420
         sw, sh = win.winfo_screenwidth(), win.winfo_screenheight()
         win.geometry("%dx%d+%d+%d" % (w, h, (sw - w) // 2, (sh - h) // 3))
+
+    def _apply_parsed(self, got):
+        self.v_name.set(got["name"])
+        self.txt_greet.delete("1.0", "end")
+        self.txt_greet.insert("1.0", got["greeting"])
+        self.txt_prompt.delete("1.0", "end")
+        self.txt_prompt.insert("1.0", got["persona"])
+        if got["world"]:
+            self.v_adv.set(True)
+            self._toggle_adv()
+            self.txt_world.delete("1.0", "end")
+            self.txt_world.insert("1.0", got["world"])
+
+    def _pick_json_text(self):
+        path = filedialog.askopenfilename(
+            parent=self, title="选择角色 JSON",
+            filetypes=[("JSON 文件", "*.json"), ("所有文件", "*.*")])
+        if not path:
+            return ""
+        try:
+            with open(path, "r", encoding="utf-8", errors="replace") as f:
+                return f.read()
+        except Exception as e:
+            messagebox.showerror("读取失败", "打不开这个文件：%s" % e, parent=self)
+            return ""
+
+    def _import_json_file(self):
+        raw = self._pick_json_text()
+        if not raw:
+            return
+        got = parse_character_json(raw)
+        if not got:
+            messagebox.showwarning("没认出角色", "这个文件里没找到 name 字段。", parent=self)
+            return
+        self._apply_parsed(got)
+
+    def _fill_members(self, select_ids=None):
+        self.lb_members.delete(0, "end")
+        for c in self.characters:
+            self.lb_members.insert("end", "  " + c.get("name", "未命名"))
+        if select_ids:
+            for i, c in enumerate(self.characters):
+                if c.get("id") in select_ids:
+                    self.lb_members.selection_set(i)
+
+    def _add_group_members(self, raw, parent):
+        got = parse_characters_json(raw)
+        if not got:
+            messagebox.showwarning("没认出角色", "检查 JSON 里每个角色有没有 name 字段。", parent=parent)
+            return
+        new_ids = []
+        for d in got:
+            ch = storage.new_character(d["name"], d["greeting"], d["persona"],
+                                       d["world"], bool(d["world"]))
+            self.characters.append(ch)
+            new_ids.append(ch["id"])
+        storage.save_characters(self.characters)
+        self._fill_members(new_ids)
+        for c in getattr(self, "characters", []):
+            if c.get("id") in new_ids:
+                self.lb_members.see(self.characters.index(c))
+
+    def _paste_group_json(self):
+        win = tk.Toplevel(self)
+        win.title("粘贴角色 JSON")
+        win.configure(bg=C_CARD)
+        win.transient(self)
+        win.grab_set()
+        tk.Label(win, text="把 AI 生成的角色 JSON 粘贴到下面，可以一次多个", bg=C_CARD,
+                 fg=C_TEXT, font=font(11, bold=True), anchor="w").pack(fill="x", padx=16, pady=(14, 4))
+        tk.Label(win, text="支持单个对象、数组，或 characters 数组；每个成员会自动新建并选中",
+                 bg=C_CARD, fg=C_TEXT_SUB, font=font(9), anchor="w").pack(fill="x", padx=16)
+        holder = tk.Frame(win, bg=C_LINE, padx=1, pady=1)
+        holder.pack(fill="both", expand=True, padx=16, pady=10)
+        txt = tk.Text(holder, height=12, wrap="word", bd=0, relief="flat", bg="#FCFCFE",
+                      fg=C_TEXT, font=font(10), padx=10, pady=8)
+        txt.pack(fill="both", expand=True)
+        txt.focus_force()
+
+        def do_add():
+            self._add_group_members(txt.get("1.0", "end"), win)
+            win.destroy()
+
+        foot = tk.Frame(win, bg=C_CARD)
+        foot.pack(fill="x", padx=16, pady=(0, 14))
+        flat_button(foot, "取消", win.destroy, kind="plain").pack(side="right", padx=(8, 0))
+        flat_button(foot, "添加为成员", do_add, kind="primary").pack(side="right")
+        win.update_idletasks()
+        w, h = 560, 420
+        sw, sh = win.winfo_screenwidth(), win.winfo_screenheight()
+        win.geometry("%dx%d+%d+%d" % (w, h, (sw - w) // 2, (sh - h) // 3))
+
+    def _import_group_json_file(self):
+        raw = self._pick_json_text()
+        if not raw:
+            return
+        self._add_group_members(raw, self)
 
     def _center(self):
         self.update_idletasks()
