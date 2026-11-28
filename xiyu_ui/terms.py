@@ -1,7 +1,14 @@
-"""用户协议：每次启动强制阅读，同意后才能进入主界面。"""
+"""用户协议：首次启动（或协议版本更新后）强制阅读，同意后才能进入主界面。"""
 
+import json
+import os
 import sys
+import time
 import tkinter as tk
+
+from xiyu_core import paths
+
+TERMS_VERSION = "1"
 
 TERMS = """戏语（XiyuChat）用户协议
 
@@ -97,9 +104,36 @@ def ask_agree():
     return state["ok"]
 
 
+def _record_file():
+    return os.path.join(paths.ROOT_DIR, "terms.json")
+
+
+def already_agreed():
+    """当前版本协议是否已被同意。"""
+    try:
+        with open(_record_file(), "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data.get("version") == TERMS_VERSION
+    except Exception:
+        return False
+
+
+def _remember():
+    try:
+        os.makedirs(paths.ROOT_DIR, exist_ok=True)
+        with open(_record_file(), "w", encoding="utf-8") as f:
+            json.dump({"version": TERMS_VERSION, "time": time.strftime("%Y-%m-%d %H:%M:%S")},
+                      f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+
 def gate():
-    """协议闸门：同意返回 True，否则退出进程。"""
+    """协议闸门：已同意过当前版本直接放行，否则弹出；拒绝则退出进程。"""
+    if already_agreed():
+        return True
     if ask_agree():
+        _remember()
         return True
     print("已拒绝用户协议，程序退出。")
     sys.exit(0)
