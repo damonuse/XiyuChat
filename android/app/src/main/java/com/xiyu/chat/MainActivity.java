@@ -2,7 +2,9 @@ package com.xiyu.chat;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.content.Intent;
 import android.content.SharedPreferences;
+import android.net.Uri;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
@@ -69,6 +71,8 @@ public class MainActivity extends Activity {
     private final Handler ui = new Handler(Looper.getMainLooper());
 
     private static final String TERMS_VERSION = "1";
+    private static final int REQ_JSON = 1001;
+    private EditText pendingImportInput;
 
     private boolean busy = false;
     private JSONObject curSession;
@@ -599,6 +603,9 @@ public class MainActivity extends Activity {
         EditText input = field("在这里粘贴 JSON", "", 8);
         input.setSingleLine(false);
         box.addView(input);
+        Button pick = button("从文件选择 .json", false);
+        pick.setOnClickListener(v -> pickJsonFile(input));
+        box.addView(pick, wrapLp(6));
         ScrollView sc = new ScrollView(this);
         sc.addView(box);
         new AlertDialog.Builder(this)
@@ -616,6 +623,35 @@ public class MainActivity extends Activity {
                 })
                 .setNegativeButton("取消", null)
                 .show();
+    }
+
+    private void pickJsonFile(EditText target) {
+        pendingImportInput = target;
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("*/*");
+        startActivityForResult(intent, REQ_JSON);
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode != REQ_JSON || resultCode != RESULT_OK || data == null) return;
+        if (pendingImportInput == null) return;
+        Uri uri = data.getData();
+        if (uri == null) return;
+        try {
+            InputStream is = getContentResolver().openInputStream(uri);
+            if (is == null) return;
+            BufferedReader br = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder();
+            String line;
+            while ((line = br.readLine()) != null) sb.append(line).append('\n');
+            br.close();
+            pendingImportInput.setText(sb.toString());
+        } catch (Exception e) {
+            Toast.makeText(this, "读取失败：" + e.getMessage(), Toast.LENGTH_SHORT).show();
+        }
     }
 
     private String firstOf(JSONObject o, String... keys) {
