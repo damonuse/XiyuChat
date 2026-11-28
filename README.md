@@ -9,6 +9,7 @@
 ## 功能
 
 - **角色**：名字、开场白、人设提示词；「高级权限」可填写世界背景（世界观、地点、规则）。
+- **批量导入角色**：把 AI 生成的角色 JSON 粘贴进来，或直接选一个 `.json` 文件，名字、开场白、人设、世界背景自动填好；群聊里也能一次导入多个成员。
 - **单聊**：只和一个角色对话，角色有开场白时自动作为第一条消息。
 - **群聊**：把多个角色放进同一个房间，每个角色依次单独回复、各自成条，用名字区分说话人；提示词里会列出同场其他角色的设定，避免抢戏、串戏。
 - **格式约定**：台词写正文，动作、神态、心理、旁白一律用中文全角括号（）标注在台词前后，例如：
@@ -17,7 +18,34 @@
 - **接口**：内置 DeepSeek、OpenAI 兼容接口预设，也可自定义 Base URL / 模型名。
 - **密钥安全**：API Key 加密后保存（`secret.bin`），不写死在代码里，不上传任何服务器。Windows 用 DPAPI（绑定当前用户），Linux / macOS 用 PBKDF2 派生密钥（文件权限 600），移动端只存在本机应用私有存储。
 - **数据目录**：Windows 默认 `%APPDATA%\XiyuChat\Data`，macOS 默认 `~/Library/Application Support/XiyuChat/Data`，Linux 默认 `$XDG_DATA_HOME/XiyuChat/Data`（无则 `~/.local/share`）。可在 F2 →「数据目录」改到任意位置；更换时可以把现有角色和聊天记录一起复制过去。
-- **用量统计**（桌面端）：F2 →「用量余额」可查询 DeepSeek 账户余额，并显示本机累计的 token 用量。
+- **用量统计**：F2 →「用量余额」可查询 DeepSeek 账户余额，并显示本机累计的 token 用量；移动端在「设置 → 账户余额」里。
+
+## 用 AI 帮你写角色
+
+不想手敲人设的话，把下面这段发给任意大模型，它会回一段可以直接导入的 JSON：
+
+```text
+你是一个角色设计助手。请按下面的要求输出一个角色，只输出 JSON，不要解释。
+
+- name：角色名字，2～6 个字，好念
+- greeting：开场白，1～2 句，带一个中文括号里的动作或神态，例如（放下手里的书，抬头笑了笑）
+- persona：人设提示词，150～300 字，写清身份、性格、说话方式、与用户的关系、说话节奏
+- world：世界背景，80～150 字，写清时代、地点、规则、当下的处境
+
+输出格式：
+{"name": "…", "greeting": "…", "persona": "…", "world": "…"}
+
+要多个角色就输出：{"characters": [{"…"}, {"…"}]}
+```
+
+把回的内容整段粘进来就行，带不带 ````json` 包裹都能认。字段写成中文（名字 / 开场白 / 人设 / 设定 / 世界 / 背景）也认。
+
+导入入口：
+
+- 桌面端：「＋ 创建角色」→「粘贴 JSON」或「从文件导入」；群聊窗口里是「粘贴 JSON 加成员」/「从文件加成员」，一次建好并自动选中。
+- Android：「角色管理」→「导入 JSON」，可以粘贴，也能「从文件选择 .json」。
+- iOS：「角色」页右上「导入 JSON」，可以粘贴，也能从文件里选。
+
 
 ## 下载
 
@@ -58,11 +86,13 @@ iOS 的 ipa 未做 Apple 签名（签名需要自己的开发者证书），可�
 Android 与 iOS 客户端与桌面端功能对齐：
 
 - 会话列表：单聊与群聊都在这里，长按 / 左滑可删除。
-- 角色管理：新建、编辑（名字、开场白、人设、世界背景）、删除。
+- 角色管理：新建、编辑（名字、开场白、人设、世界背景）、删除，支持粘贴 JSON 或从文件导入。
 - 群聊：选中多个角色创建房间，发言后每个角色按顺序各回复一条，界面按名字区分。
-- 设置：接口地址、API Key、模型名、全局提示词。
+- 设置：接口地址、API Key、模型名、全局提示词、账户余额。
 
 数据与会话只保存在本机应用私有目录，卸载即清除。
+
+首次启动会弹一次用户协议，点同意后不再重复出现；只有协议内容更新时才会再弹。
 
 ## 从源码运行
 
@@ -117,7 +147,7 @@ pyinstaller --noconfirm --clean --onefile --windowed --name Xiyu main.py
 hdiutil create -volname "Xiyu 1.0.0" -srcfolder pkg -ov -format UDZO Xiyu-1.0.0-macos-arm64.dmg
 ```
 
-各平台安装包由 GitHub Actions 自动构建，配置见 `.github/workflows/build.yml`（9 个 job：Windows x64 / x86 / ARM64、Linux x64 / ARM64、macOS arm64 / Intel、Android、iOS；Android 一个 job 产出 5 个 ABI 包，全部产物自动上传到对应 Release）。
+各平台安装包由 GitHub Actions 构建，配置见 `.github/workflows/build.yml`（9 个 job：Windows x64 / x86 / ARM64、Linux x64 / ARM64、macOS arm64 / Intel、Android、iOS；Android 一个 job 出 5 个 ABI 包）。
 
 ## 目录结构
 
@@ -162,7 +192,7 @@ ios/                    iOS 原生客户端（SwiftUI + XcodeGen 工程描述）
 
 ## 已知限制
 
-- 只有 DeepSeek 提供余额查询接口；OpenAI 兼容接口下余额一栏会提示不支持（仅桌面端）。
+- 只有 DeepSeek 提供余额查询接口；OpenAI 兼容接口下余额一栏会提示不支持（三端都有入口，桌面端还多一项本机 token 统计）。
 - token 统计是本机累加，不跨设备同步。
 - Windows 下 API Key 用用户级 DPAPI 加密，换电脑需要在设置里重新填写。
 - Linux 需要系统装有 Tk（Debian / Ubuntu：`sudo apt install python3-tk libtk8.6`）。
