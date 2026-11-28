@@ -1,4 +1,5 @@
 """设置窗口（含首次引导）与角色/群聊创建窗口。"""
+import json
 import os
 import subprocess
 import sys
@@ -587,6 +588,51 @@ class MemoryWindow(tk.Toplevel):
             self.on_save(self.txt.get("1.0", "end").rstrip())
 
 
+def _first_of(d, *keys):
+    for k in keys:
+        v = d.get(k)
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+    return ""
+
+
+def parse_character_json(raw):
+    """从 AI 给的 JSON 文本里取第一个角色，返回 name/greeting/persona/world。"""
+    if not isinstance(raw, str):
+        return None
+    t = raw.strip()
+    if t.startswith("```"):
+        lines = t.splitlines()[1:]
+        if lines and lines[-1].strip().startswith("```"):
+            lines = lines[:-1]
+        t = "\n".join(lines).strip()
+    try:
+        data = json.loads(t)
+    except Exception:
+        return None
+    if isinstance(data, dict):
+        for key in ("characters", "roles", "data"):
+            if isinstance(data.get(key), list):
+                data = data[key]
+                break
+        else:
+            data = [data]
+    if not isinstance(data, list) or not data:
+        return None
+    d = data[0]
+    if not isinstance(d, dict):
+        return None
+    name = _first_of(d, "name", "名字")
+    if not name:
+        return None
+    return {
+        "name": name,
+        "greeting": _first_of(d, "greeting", "开场白"),
+        "persona": _first_of(d, "persona", "prompt", "人设", "设定"),
+        "world": _first_of(d, "world", "世界", "背景"),
+    }
+
+
 class CharacterDialog(tk.Toplevel):
     """新建角色 / 编辑角色 / 新建群聊。"""
 
@@ -614,6 +660,13 @@ class CharacterDialog(tk.Toplevel):
         tk.Label(self, text="角色的话会被严格按人设回复；动作、神态用中文括号（）表达。"
                  if not group_mode else "把多个已创建的角色放进同一个房间，他们会依次各自发言。",
                  bg=C_CARD, fg=C_TEXT_SUB, font=font(9), anchor="w").pack(fill="x", padx=pad)
+
+        if not group_mode:
+            jbar = tk.Frame(self, bg=C_CARD)
+            jbar.pack(fill="x", padx=pad, pady=(8, 0))
+            flat_button(jbar, "粘贴 JSON 自动填充", self._paste_json, kind="soft").pack(side="left")
+            tk.Label(jbar, text="把 AI 给的 JSON 粘进去，名字 / 开场白 / 人设 / 世界自动填好",
+                     bg=C_CARD, fg=C_TEXT_SUB, font=font(9), anchor="w").pack(side="left", padx=(8, 0))
 
         holder = tk.Frame(self, bg=C_CARD)
         holder.pack(fill="both", expand=True, padx=pad, pady=(12, 0))
@@ -722,6 +775,49 @@ class CharacterDialog(tk.Toplevel):
         self._toggle_mode()
         self._toggle_adv()
         _wheel_bind(body, cvs)
+
+    def _paste_json(self):
+        win = tk.Toplevel(self)
+        win.title("粘贴角色 JSON")
+        win.configure(bg=C_CARD)
+        win.transient(self)
+        win.grab_set()
+        tk.Label(win, text="把 AI 生成的 JSON 粘贴到下面", bg=C_CARD, fg=C_TEXT,
+                 font=font(11, bold=True), anchor="w").pack(fill="x", padx=16, pady=(14, 4))
+        tk.Label(win, text="支持 name / greeting / persona / world，也支持 characters 数组（取第一个）",
+                 bg=C_CARD, fg=C_TEXT_SUB, font=font(9), anchor="w").pack(fill="x", padx=16)
+        holder = tk.Frame(win, bg=C_LINE, padx=1, pady=1)
+        holder.pack(fill="both", expand=True, padx=16, pady=10)
+        txt = tk.Text(holder, height=12, wrap="word", bd=0, relief="flat", bg="#FCFCFE",
+                      fg=C_TEXT, font=font(10), padx=10, pady=8)
+        txt.pack(fill="both", expand=True)
+        txt.focus_force()
+
+        def do_parse():
+            got = parse_character_json(txt.get("1.0", "end"))
+            if not got:
+                messagebox.showwarning("没认出角色", "检查 JSON 里有没有 name 字段。", parent=win)
+                return
+            self.v_name.set(got["name"])
+            self.txt_greet.delete("1.0", "end")
+            self.txt_greet.insert("1.0", got["greeting"])
+            self.txt_prompt.delete("1.0", "end")
+            self.txt_prompt.insert("1.0", got["persona"])
+            if got["world"]:
+                self.v_adv.set(True)
+                self._toggle_adv()
+                self.txt_world.delete("1.0", "end")
+                self.txt_world.insert("1.0", got["world"])
+            win.destroy()
+
+        foot = tk.Frame(win, bg=C_CARD)
+        foot.pack(fill="x", padx=16, pady=(0, 14))
+        flat_button(foot, "取消", win.destroy, kind="plain").pack(side="right", padx=(8, 0))
+        flat_button(foot, "解析并填充", do_parse, kind="primary").pack(side="right")
+        win.update_idletasks()
+        w, h = 560, 420
+        sw, sh = win.winfo_screenwidth(), win.winfo_screenheight()
+        win.geometry("%dx%d+%d+%d" % (w, h, (sw - w) // 2, (sh - h) // 3))
 
     def _center(self):
         self.update_idletasks()
