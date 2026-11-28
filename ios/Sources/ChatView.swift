@@ -16,6 +16,39 @@ struct Message: Identifiable, Codable, Hashable {
     var content: String
 }
 
+/// 从 AI 给的 JSON 里认出角色，兼容常见字段别名与批量格式。
+func actorsFromJSON(_ raw: String) -> [Actor] {
+    var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    if text.hasPrefix("```") {
+        var lines = text.components(separatedBy: .newlines)
+        lines.removeFirst()
+        if let last = lines.last, last.hasPrefix("```") { lines.removeLast() }
+        text = lines.joined(separator: "\n")
+    }
+    guard let data = text.data(using: .utf8),
+          let any = try? JSONSerialization.jsonObject(with: data) else { return [] }
+    var dicts: [[String: Any]] = []
+    if let arr = any as? [[String: Any]] {
+        dicts = arr
+    } else if let d = any as? [String: Any] {
+        if let arr = d["characters"] as? [[String: Any]] { dicts = arr }
+        else if let arr = d["roles"] as? [[String: Any]] { dicts = arr }
+        else if let arr = d["data"] as? [[String: Any]] { dicts = arr }
+        else { dicts = [d] }
+    }
+    var out: [Actor] = []
+    for d in dicts {
+        let name = (d["name"] as? String) ?? (d["名字"] as? String) ?? ""
+        guard !name.isEmpty else { continue }
+        let greeting = (d["greeting"] as? String) ?? (d["开场白"] as? String) ?? ""
+        let persona = (d["persona"] as? String) ?? (d["prompt"] as? String)
+            ?? (d["人设"] as? String) ?? (d["设定"] as? String) ?? ""
+        let world = (d["world"] as? String) ?? (d["世界"] as? String) ?? (d["背景"] as? String) ?? ""
+        out.append(Actor(name: name, greeting: greeting, persona: persona, world: world))
+    }
+    return out
+}
+
 struct Session: Identifiable, Codable, Hashable {
     var id: UUID = UUID()
     var name: String
@@ -34,6 +67,8 @@ let formatRule = """
 """
 
 let defaultGlobal = "你是一个沉浸式角色扮演引擎。始终以角色身份说话，不要提及自己是 AI，不要跳出设定。"
+
+let termsVersion = "1"
 
 final class Store: ObservableObject {
     @Published var actors: [Actor] = [] { didSet { save() } }
@@ -57,7 +92,7 @@ final class Store: ObservableObject {
            let list = try? JSONDecoder().decode([Session].self, from: data) {
             sessions = list
         }
-        if actors.isEmpty {
+        if actors.isEmpty && !d.bool(forKey: "seeded") {
             let a = Actor(name: "戏语",
                           greeting: "（放下手里的书，抬头笑了笑）你来了，坐吧。今天想聊点什么？",
                           persona: "你是「戏语」，一个温暖、细腻的角色扮演伙伴。用第一人称和自然的口吻聊天，记住对方说过的话，回复不要太长，带一点情绪和画面感。")
@@ -67,6 +102,7 @@ final class Store: ObservableObject {
                 msgs.append(Message(role: "character", speaker: a.name, content: a.greeting))
             }
             sessions = [Session(name: a.name, type: "single", members: [a.id], messages: msgs)]
+            d.set(true, forKey: "seeded")
         }
     }
 
@@ -107,6 +143,84 @@ final class Store: ObservableObject {
             title = name.isEmpty ? (actorBy(members.first ?? UUID())?.name ?? "会话") : name
         }
         sessions.insert(Session(name: title, type: type, members: members, messages: msgs), at: 0)
+    }
+
+    var groups: [Session] {
+        sessions.filter { $0.type == "group" }
+    }
+
+    func openSingle(actorID: UUID) -> UUID {
+        if let s = sessions.first(where: { $0.type == "single" && $0.members.first == actorID }) {
+            return s.id
+        }
+        let a = actorBy(actorID)
+        var msgs: [Message] = []
+        if let a = a, !a.greeting.isEmpty {
+            msgs.append(Message(role: "character", speaker: a.name, content: a.greeting))
+        }
+        let s = Session(name: a?.name ?? "会话", type: "single", members: [actorID], messages: msgs)
+        sessions.insert(s, at: 0)
+        return s.id
+    }
+
+    func deleteActors(_ ids: [UUID]) {
+        actors.removeAll { ids.contains($0.id) }
+        sessions = sessions.compactMap { s in
+            if s.type == "single" {
+                return ids.contains(s.members.first ?? UUID()) ? nil : s
+            }
+            var s2 = s
+            s2.members = s.members.filter { !ids.contains($0) }
+            return s2.members.count >= 2 ? s2 : nil
+        }
+    }
+
+    func removeGroup(atOffsets idx: IndexSet) {
+        let ids = idx.map { groups[$0].id }
+        sessions.removeAll { ids.contains($0.id) }
+    }
+
+    /// 查询 DeepSeek 的账户余额（只读，不产生费用）。
+    func balance() async -> String {
+        guard !apiKey.isEmpty else { return "请先填写并保存 API Key" }
+        var comps = URLComponents(string: baseURL)
+        guard let scheme = comps?.scheme, let host = comps?.host,
+              let url = URL(string: "\(scheme)://\(host)/user/balance") else {
+            return "Base URL 不合法"
+        }
+        var req = URLRequest(url: url)
+        req.setValue("Bearer " + apiKey, forHTTPHeaderField: "Authorization")
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+        req.timeoutInterval = 20
+        do {
+            let (data, resp) = try await URLSession.shared.data(for: req)
+            let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+            if code == 404 || code == 405 {
+                return "这个接口没有余额查询（目前只有 DeepSeek 提供 /user/balance）"
+            }
+            guard let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+                return "余额返回格式无法解析（HTTP \(code)）"
+            }
+            if code != 200 {
+                let msg = ((obj["error"] as? [String: Any])?["message"] as? String) ?? "HTTP \(code)"
+                return "查询失败：" + msg
+            }
+            let available = (obj["is_available"] as? Bool) ?? true
+            var parts: [String] = []
+            if let infos = obj["balance_infos"] as? [[String: Any]] {
+                for i in infos {
+                    let cur = (i["currency"] as? String) ?? ""
+                    let total = (i["total_balance"] as? String) ?? "0"
+                    let topped = (i["topped_up_balance"] as? String) ?? "-"
+                    let granted = (i["granted_balance"] as? String) ?? "-"
+                    parts.append("\(total) \(cur)（充值 \(topped) · 赠送 \(granted)）")
+                }
+            }
+            let body = parts.isEmpty ? "接口未返回余额信息" : parts.joined(separator: "；")
+            return body + "｜账户状态：" + (available ? "可用" : "不可用（余额可能不足）")
+        } catch {
+            return "查询失败：" + error.localizedDescription
+        }
     }
 
     func send(_ text: String, sessionID: UUID) {
@@ -432,35 +546,65 @@ struct ChatView: View {
     @StateObject private var store = Store()
     @State private var showNew = false
     @State private var showSettings = false
-    @State private var agreed = false
+    @AppStorage("terms_version") private var agreedVersion = ""
 
     var body: some View {
-        if agreed {
+        if agreedVersion == termsVersion {
             mainBody
         } else {
-            TermsView(onAgree: { agreed = true })
+            TermsView(onAgree: { agreedVersion = termsVersion })
         }
     }
 
     private var mainBody: some View {
         NavigationStack {
             List {
-                ForEach(store.sessions) { s in
-                    NavigationLink {
-                        ChatDetail(store: store, sessionID: s.id)
-                    } label: {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(s.name).font(.system(size: 17, weight: .semibold))
-                            Text(s.type == "group"
-                                 ? "群聊 · \(s.members.count) 位角色 · \(store.memberNames(s))"
-                                 : "单聊 · 私聊角色")
-                                .font(.system(size: 12))
-                                .foregroundColor(.secondary)
+                Section {
+                    ForEach(store.actors) { a in
+                        NavigationLink {
+                            ChatDetail(store: store, sessionID: store.openSingle(actorID: a.id))
+                        } label: {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(a.name).font(.system(size: 17, weight: .semibold))
+                                Text(a.persona.isEmpty ? "（还没有人设）" : a.persona)
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.secondary)
+                                    .lineLimit(1)
+                            }
+                            .padding(.vertical, 3)
                         }
-                        .padding(.vertical, 4)
+                    }
+                    .onDelete { idx in
+                        store.deleteActors(idx.map { store.actors[$0].id })
+                    }
+                } header: {
+                    HStack {
+                        Text("角色")
+                        Spacer()
+                        Text("点进角色直接单聊")
                     }
                 }
-                .onDelete { idx in store.sessions.remove(atOffsets: idx) }
+                if !store.groups.isEmpty {
+                    Section {
+                        ForEach(store.groups) { s in
+                            NavigationLink {
+                                ChatDetail(store: store, sessionID: s.id)
+                            } label: {
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(s.name).font(.system(size: 17, weight: .semibold))
+                                    Text("群聊 · \(s.members.count) 位角色 · \(store.memberNames(s))")
+                                        .font(.system(size: 12))
+                                        .foregroundColor(.secondary)
+                                        .lineLimit(1)
+                                }
+                                .padding(.vertical, 3)
+                            }
+                        }
+                        .onDelete { idx in store.removeGroup(atOffsets: idx) }
+                    } header: {
+                        Text("群聊")
+                    }
+                }
             }
             .navigationTitle("戏语")
             .toolbar {
@@ -471,16 +615,16 @@ struct ChatView: View {
                     Button("设置") { showSettings = true }
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("＋ 会话") {
-                        if store.actors.isEmpty { showSettings = true } else { showNew = true }
+                    Button("＋ 群聊") {
+                        if store.actors.count < 2 { showSettings = true } else { showNew = true }
                     }
                 }
             }
             .sheet(isPresented: $showNew) { NewSessionView(store: store) }
             .sheet(isPresented: $showSettings) { SettingsView(store: store) }
             .overlay {
-                if store.sessions.isEmpty {
-                    Text("点右上角「＋ 会话」开始").foregroundColor(.secondary)
+                if store.actors.isEmpty {
+                    Text("点左上角「角色」新建一个角色").foregroundColor(.secondary)
                 }
             }
         }
@@ -497,7 +641,7 @@ struct NewSessionView: View {
         NavigationStack {
             Form {
                 Section {
-                    TextField("会话名称（群聊可留空）", text: $name)
+                    TextField("群聊名称（可留空）", text: $name)
                 } header: {
                     Text("名称")
                 }
@@ -511,10 +655,10 @@ struct NewSessionView: View {
                         ))
                     }
                 } header: {
-                    Text("选择角色（1 个是单聊，2 个以上是群聊）")
+                    Text("选择角色（至少 2 个，构成群聊）")
                 }
             }
-            .navigationTitle("新建会话")
+            .navigationTitle("新建群聊")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("取消") { dismiss() }
@@ -522,11 +666,11 @@ struct NewSessionView: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("创建") {
                         let ids = store.actors.filter { selected.contains($0.id) }.map { $0.id }
-                        if ids.isEmpty { return }
-                        store.addSession(name: name, members: ids,
-                                         type: ids.count > 1 ? "group" : "single")
+                        if ids.count < 2 { return }
+                        store.addSession(name: name, members: ids, type: "group")
                         dismiss()
                     }
+                    .disabled(selected.count < 2)
                 }
             }
         }
@@ -536,6 +680,7 @@ struct NewSessionView: View {
 struct ActorsView: View {
     @ObservedObject var store: Store
     @State private var editing: Actor? = nil
+    @State private var showImport = false
 
     var body: some View {
         List {
@@ -567,11 +712,63 @@ struct ActorsView: View {
         .navigationTitle("角色")
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
+                Button("导入 JSON") { showImport = true }
+            }
+            ToolbarItem(placement: .navigationBarTrailing) {
                 Button("＋ 角色") { editing = Actor(name: "", greeting: "", persona: "") }
             }
         }
         .sheet(item: $editing) { a in
             ActorEditView(store: store, actor: a)
+        }
+        .sheet(isPresented: $showImport) {
+            ImportActorsView(store: store)
+        }
+    }
+}
+
+struct ImportActorsView: View {
+    @ObservedObject var store: Store
+    @Environment(\.dismiss) private var dismiss
+    @State private var raw = ""
+    @State private var message = ""
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    TextEditor(text: $raw)
+                        .frame(minHeight: 240)
+                        .disableAutocorrection(true)
+                        .autocapitalization(.none)
+                } header: {
+                    Text("把 AI 生成的 JSON 粘贴到这里")
+                } footer: {
+                    Text("支持单个角色，也支持 characters 数组或直接数组。字段可用 name/名字、persona/prompt/人设、greeting/开场白、world/世界。")
+                }
+                if !message.isEmpty {
+                    Section {
+                        Text(message).font(.footnote).foregroundColor(.red)
+                    }
+                }
+            }
+            .navigationTitle("导入角色")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("导入") {
+                        let list = actorsFromJSON(raw)
+                        if list.isEmpty {
+                            message = "没认出角色，检查一下 JSON（至少要有一个 name 字段）"
+                            return
+                        }
+                        for a in list { store.actors.append(a) }
+                        dismiss()
+                    }
+                }
+            }
         }
     }
 }
@@ -643,6 +840,8 @@ struct ActorEditView: View {
 struct SettingsView: View {
     @ObservedObject var store: Store
     @Environment(\.dismiss) private var dismiss
+    @State private var balanceText = "点「查询余额」试试（仅 DeepSeek 支持）"
+    @State private var balanceBusy = false
 
     var body: some View {
         NavigationStack {
@@ -659,6 +858,25 @@ struct SettingsView: View {
                         .disableAutocorrection(true)
                 } header: {
                     Text("接口")
+                }
+                Section {
+                    Text(balanceText).font(.system(size: 14))
+                    Button(balanceBusy ? "查询中…" : "查询余额") {
+                        balanceBusy = true
+                        balanceText = "查询中…"
+                        Task {
+                            let r = await store.balance()
+                            await MainActor.run {
+                                balanceText = r
+                                balanceBusy = false
+                            }
+                        }
+                    }
+                    .disabled(balanceBusy)
+                } header: {
+                    Text("账户余额")
+                } footer: {
+                    Text("来自 DeepSeek 的 /user/balance 接口，只读取、不产生费用。")
                 }
                 Section {
                     TextEditor(text: $store.globalPrompt)
